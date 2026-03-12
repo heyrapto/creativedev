@@ -101,7 +101,7 @@ export function Card({
     const targetQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
     localSpinRef.current.quaternion.slerp(targetQ, delta * 8);
 
-    // Procedural Dynamic Chain Math
+    // Procedural Dynamic Pole Math
     if (chainLinkRef.current) {
         // Top static anchor
         const anchorPos = new THREE.Vector3(position[0], position[1] + 12, position[2]);
@@ -109,15 +109,15 @@ export function Card({
         // Bottom hook derived from the swaying parent elementWorldRef
         const hookPos = new THREE.Vector3();
         elementWorldRef.current.getWorldPosition(hookPos);
-        // Track precisely to the top of the newly shortened hook shape (Y=0.6) inside its group offset (Y=1.15)
-        const localHookOffset = new THREE.Vector3(-0.05, 1.15 + 0.6, 0).applyQuaternion(elementWorldRef.current.quaternion);
+        
+        // Track precisely to the top of the newly proportioned hook shape (Y=0.6) inside its group offset (Y=1.25)
+        const localHookOffset = new THREE.Vector3(-0.08, 1.25 + 0.6, 0).applyQuaternion(elementWorldRef.current.quaternion);
         hookPos.add(localHookOffset);
         
         chainLinkRef.current.position.copy(anchorPos).lerp(hookPos, 0.5);
         chainLinkRef.current.lookAt(hookPos);
         
         const dist = anchorPos.distanceTo(hookPos);
-        // Scale ONLY Z to fit distance without destroying link thickness proportion
         chainLinkRef.current.scale.set(1, 1, dist);
     }
   });
@@ -138,18 +138,9 @@ export function Card({
   const accentMaterial = useMemo(() => {
      return {
          ...materialProps,
-         color: new THREE.Color('#ffb000'), 
+         color: new THREE.Color('#ffaa00'), 
          metalness: 1,
          roughness: 0.15
-     }
-  }, [materialProps]);
-  
-  const silverMaterial = useMemo(() => {
-     return {
-         ...materialProps,
-         color: new THREE.Color('#dddddd'),
-         metalness: 1,
-         roughness: 0.2
      }
   }, [materialProps]);
 
@@ -171,33 +162,28 @@ export function Card({
 
   return (
     <group>
-      {/* Static Top Anchor Ring */}
+      {/* Static Top Anchor Ring - Now Gold */}
       <mesh position={[position[0], position[1] + 12, position[2]]}>
           <Torus args={[0.2, 0.05, 16, 32]} rotation={[Math.PI / 2, 0, 0]}>
-              <meshPhysicalMaterial {...silverMaterial} />
+              <meshPhysicalMaterial {...accentMaterial} />
           </Torus>
       </mesh>
 
-      {/* Dynamic Stretched Silver PoleAssembly */}
-      {/* We use a simple Cylinder stretching along Z. Since lookAt points local -Z at the target, we must position the cylinder offset relative to Z to span 0 to -1. But the simplest way is to orient the cylinder geometry along Z axis naturally (by passing `rotation={[Math.PI/2, 0, 0]}` to the mesh, and translating it by Z = -0.5 so it spans the pivot). */}
+      {/* Dynamic Stretched Gold Pole Assembly */}
       <group ref={chainLinkRef}>
           <mesh rotation={[Math.PI / 2, 0, 0]}>
-             {/* scale is (1, distance, 1) when parent scale.set(1, 1, dist) is applied, but wait.. the parent scales Z.
-                 So we just use a box or a cylinder that has height 1 and sits on Z. */}
              <cylinderGeometry args={[0.02, 0.02, 1, 16]} />
-             <meshPhysicalMaterial {...silverMaterial} />
+             <meshPhysicalMaterial {...accentMaterial} />
           </mesh>
       </group>
 
-      
       {/* Hook and Element Physics Container */}
-      {/* This holds the hook + element and takes the drag interactions */}
       <a.group 
         {...bind() as any}
         ref={elementWorldRef}
       >
-        {/* Golden Hook attached specifically to the interactive drag body */}
-        <group position={[-0.05, 1.15, 0]} onClick={(e) => { e.stopPropagation(); handleHookClick(); }}>
+        {/* Golden Hook explicitly offset so its inner lower arc X=0, Y=1.1, passing perfectly through a Y=1.1 centered Torus */}
+        <group position={[-0.08, 1.25, 0]} onClick={(e) => { e.stopPropagation(); handleHookClick(); }}>
            <Extrude args={[hookShape.shape, { extrudePath: hookShape.curve, steps: 50, bevelEnabled: false }]}>
                <meshPhysicalMaterial {...accentMaterial} />
            </Extrude>
@@ -217,15 +203,18 @@ export function Card({
             ref={localSpinRef}
             position={[0, 0, 0]}
           >
-              {/* Element Top Eyelet Ring (so the hook clips into something physical) */}
-              <group position={[0, 0.95, 0]}>
-                 <Torus args={[0.15, 0.03, 16, 32]} rotation={[Math.PI / 2, 0, 0]}>
-                    <meshPhysicalMaterial {...accentMaterial} />
-                 </Torus>
-              </group>
-
               {type === "safe" && (
-                <group position={[0, -0.5, 0]}>
+                <group position={[0, -0.25, 0]}>
+                   {/* Centered Eyelet embedded seamlessly at physical bounds (Safe is radius 1.25 + center -0.25 = 1.0) */}
+                   <group position={[0, 1.15, 0]}>
+                       <Cylinder args={[0.06, 0.06, 0.1, 16]} position={[0, -0.1, 0]}>
+                           <meshPhysicalMaterial {...accentMaterial} />
+                       </Cylinder>
+                       <Torus args={[0.08, 0.02, 16, 32]} position={[0, -0.05, 0]} rotation={[0, Math.PI / 2, 0]}>
+                           <meshPhysicalMaterial {...accentMaterial} />
+                       </Torus>
+                   </group>
+
                    <RoundedBox args={[2.5, 2.5, 2.5]} radius={0.2} smoothness={4}>
                       <meshPhysicalMaterial {...materialProps} color="#4b8cde" />
                    </RoundedBox>
@@ -257,7 +246,16 @@ export function Card({
               )}
 
               {type === "globe" && (
-                 <group position={[0, -0.5, 0]}>
+                 <group position={[0, 0.0, 0]}>
+                    <group position={[0, 1.15, 0]}>
+                       <Cylinder args={[0.06, 0.06, 0.1, 16]} position={[0, -0.1, 0]}>
+                           <meshPhysicalMaterial {...accentMaterial} />
+                       </Cylinder>
+                       <Torus args={[0.08, 0.02, 16, 32]} position={[0, -0.05, 0]} rotation={[0, Math.PI / 2, 0]}>
+                           <meshPhysicalMaterial {...accentMaterial} />
+                       </Torus>
+                    </group>
+
                     <Sphere args={[1, 32, 32]}>
                         <meshPhysicalMaterial {...materialProps} color="#fff" transmission={0.2} roughness={0.5} />
                     </Sphere>
@@ -276,8 +274,9 @@ export function Card({
                         <RoundedBox args={[1, 0.8, 0.4]} radius={0.1} smoothness={2}>
                             <meshPhysicalMaterial {...accentMaterial} color="#e5a03e" />
                         </RoundedBox>
+                        {/* Shackle remains silver to distinguish it */}
                         <Torus args={[0.3, 0.1, 16, 32]} position={[0, 0.5, 0]} rotation={[0, 0, 0]}>
-                            <meshPhysicalMaterial {...silverMaterial} />
+                            <meshPhysicalMaterial {...materialProps} color="#dddddd" metalness={1} roughness={0.2} />
                         </Torus>
                     </group>
                  </group>
