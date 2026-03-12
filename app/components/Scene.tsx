@@ -22,9 +22,9 @@ export function Scene() {
 
         {/* Render two cards like in the reference */}
         {/* Left card facing front-ish */}
-        <Card position={[-2.5, -1.5, 0]} rotation={[0, 0.2, 0]} />
+        <Card position={[-1.8, 0, 0]} rotation={[0, 0.2, 0]} />
         {/* Right card sideways */}
-        <Card position={[2.5, -1.5, 0]} rotation={[0, Math.PI / 2.2, 0]} />
+        <Card position={[1.8, 0, 0]} rotation={[0, Math.PI / 2.2, 0]} />
       </Canvas>
     </div>
   );

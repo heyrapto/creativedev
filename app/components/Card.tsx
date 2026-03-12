@@ -10,17 +10,17 @@ import { useSpring, a } from '@react-spring/three';
 
 export function Card({ position = [0, 0, 0], rotation = [0, 0, 0] }: { position?: [number, number, number], rotation?: [number, number, number] }) {
   const groupRef = useRef<THREE.Group>(null);
-  
+
   const intensity = useStore((s) => s.intensity);
   const speed = useStore((s) => s.speed);
   const wind = useStore((s) => s.wind);
   const saturation = useStore((s) => s.saturation);
   const glare = useStore((s) => s.glare);
   const holoThickness = useStore((s) => s.holoThickness);
-  
+
   const [hovered, setHovered] = useState(false);
   const [targetRotationY, setTargetRotationY] = useState(rotation[1]);
-  
+
   const [springs, api] = useSpring(() => ({
     position: position,
     rotation: rotation,
@@ -31,7 +31,7 @@ export function Card({ position = [0, 0, 0], rotation = [0, 0, 0] }: { position?
     // Basic mapping from screen pixels to 3D space
     const mappedX = x / 50;
     const mappedY = -y / 50;
-    
+
     if (active) {
       api.start({ position: [position[0] + mappedX, position[1] + mappedY, position[2]] });
     } else {
@@ -43,10 +43,10 @@ export function Card({ position = [0, 0, 0], rotation = [0, 0, 0] }: { position?
 
   useFrame((state, delta) => {
     if (!groupRef.current) return;
-    
+
     // Smooth hover rotation (360 degrees when hovered)
     if (hovered) {
-      setTargetRotationY(rotation[1] + Math.PI * 2); 
+      setTargetRotationY(rotation[1] + Math.PI * 2);
       // To keep it spinning or just rotate once? 
       // "rotates 360" usually means it completes a full spin. Let's just linearly interpolate towards a target.
     } else {
@@ -57,11 +57,11 @@ export function Card({ position = [0, 0, 0], rotation = [0, 0, 0] }: { position?
     const time = state.clock.elapsedTime;
     const swayX = Math.sin(time * speed) * wind * intensity;
     const swayZ = Math.cos(time * speed * 0.8) * wind * intensity;
-    
+
     // Apply swing
     groupRef.current.rotation.z = swayX;
     groupRef.current.rotation.x = swayZ;
-    
+
     // Apply target y rotation
     groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, targetRotationY, delta * 2);
   });
@@ -85,21 +85,21 @@ export function Card({ position = [0, 0, 0], rotation = [0, 0, 0] }: { position?
   }, [holoThickness, glare, saturation]);
 
   return (
-    <a.group 
-      {...springs} 
+    <a.group
+      {...springs}
       {...bind() as any}
       onPointerOver={() => setHovered(true)}
       onPointerOut={() => setHovered(false)}
       ref={groupRef}
     >
       {/* Lanyard Line */}
-      <mesh position={[0, 4.5, 0]}>
-        <boxGeometry args={[0.2, 5, 0.05]} />
+      <mesh position={[0, 11.9, 0]}>
+        <boxGeometry args={[0.15, 20, 0.05]} />
         <meshStandardMaterial color="#111" />
         <Text
-          position={[0, 0, 0.03]}
+          position={[0, -7.5, 0.03]}
           rotation={[0, 0, -Math.PI / 2]}
-          fontSize={0.15}
+          fontSize={0.12}
           color="white"
           anchorX="center"
           anchorY="middle"
@@ -110,16 +110,16 @@ export function Card({ position = [0, 0, 0], rotation = [0, 0, 0] }: { position?
       </mesh>
 
       {/* Card Body */}
-      <RoundedBox args={[3, 4.5, 0.1]} radius={0.05} smoothness={4} position={[0, 0, 0]}>
+      <RoundedBox args={[2.2, 3.8, 0.1]} radius={0.05} smoothness={4} position={[0, 0, 0]}>
         <meshPhysicalMaterial {...materialProps} />
-        
+
         {/* Texts */}
         <group position={[0, 0, 0.06]}>
           <Text
-            position={[0, 0.5, 0]}
-            fontSize={0.4}
+            position={[0, 0.4, 0]}
+            fontSize={0.35}
             color="white"
-            maxWidth={2.5}
+            maxWidth={2}
             textAlign="center"
             anchorX="center"
             anchorY="middle"
@@ -127,8 +127,8 @@ export function Card({ position = [0, 0, 0], rotation = [0, 0, 0] }: { position?
             Creative{'\n'}Club
           </Text>
           <Text
-            position={[-1.2, -1.6, 0]}
-            fontSize={0.1}
+            position={[-0.9, -1.3, 0]}
+            fontSize={0.08}
             color="white"
             anchorX="left"
             anchorY="top"

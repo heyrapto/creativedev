@@ -43,12 +43,12 @@ const CustomSlider = ({
     const rect = trackRef.current.getBoundingClientRect();
     let percentage = (clientX - rect.left) / rect.width;
     percentage = Math.max(0, Math.min(1, percentage));
-    
+
     // Calculate raw value
     let newValue = min + percentage * (max - min);
     // Snap to step
     newValue = Math.round(newValue / step) * step;
-    
+
     onChange(newValue);
   };
 
@@ -59,18 +59,18 @@ const CustomSlider = ({
       <div className="flex items-center justify-between mb-2">
         <span className="text-white text-xs">{label}</span>
       </div>
-      <div 
+      <div
         ref={trackRef}
         className="w-full h-1 bg-white/20 rounded-full relative cursor-pointer"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
-        <div 
-          className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-300" 
-          style={{ width: `${fillPercentage}%`, pointerEvents: 'none' }} 
+        <div
+          className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-300"
+          style={{ width: `${fillPercentage}%`, pointerEvents: 'none' }}
         />
-        <div 
+        <div
           className="absolute top-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_5px_rgba(255,255,255,0.8)] -translate-y-1/2 -ml-1.5 cursor-grab active:cursor-grabbing"
           style={{ left: `${fillPercentage}%` }}
         />
@@ -100,7 +100,7 @@ export const Overlays = () => {
       </div>
 
       {/* Bottom Controls */}
-      <div className="w-full p-6 sm:p-10 overflow-x-auto pointer-events-auto">
+      <div className="w-full overflow-x-auto pointer-events-auto">
         <div className="flex items-center gap-4 w-max mx-auto md:mx-0 md:w-full md:justify-center">
           <CustomSlider label="Intensity" value={intensity} min={0} max={1} onChange={(v) => setControls({ intensity: v })} />
           <CustomSlider label="Speed" value={speed} min={0} max={5} onChange={(v) => setControls({ speed: v })} />
