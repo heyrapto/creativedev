@@ -20,11 +20,11 @@ export function Scene() {
           </group>
         </Environment>
 
-        {/* Render two cards like in the reference */}
-        {/* Left card facing front-ish */}
-        <Card position={[-1.8, 0, 0]} rotation={[0, 0.2, 0]} />
-        {/* Right card sideways */}
-        <Card position={[1.8, 0, 0]} rotation={[0, Math.PI / 2.2, 0]} />
+        {/* Render two 3D elements */}
+        {/* Left 'Safe' facing front-ish */}
+        <Card position={[-1.8, 0, 0]} rotation={[0, 0.2, 0]} type="safe" />
+        {/* Right 'Globe' sideways */}
+        <Card position={[1.8, 0, 0]} rotation={[0, Math.PI / 2.2, 0]} type="globe" />
       </Canvas>
     </div>
   );
