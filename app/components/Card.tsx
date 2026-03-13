@@ -10,9 +10,9 @@ import { useSpring, a } from '@react-spring/three';
 
 // Global physics registry to allow elastic collisions between the separate Card components
 const cardStates: Record<string, {
-    pos: THREE.Vector3;
-    api: any;
-    isDragging: boolean;
+  pos: THREE.Vector3;
+  api: any;
+  isDragging: boolean;
 }> = {};
 
 export function Card({
@@ -54,9 +54,9 @@ export function Card({
   // Ensure this card puts its API in the global physics registry
   useEffect(() => {
     if (!cardStates[type]) {
-        cardStates[type] = { pos: new THREE.Vector3(), api: api, isDragging: false };
+      cardStates[type] = { pos: new THREE.Vector3(), api: api, isDragging: false };
     } else {
-        cardStates[type].api = api;
+      cardStates[type].api = api;
     }
   }, [api, type]);
 
@@ -123,30 +123,30 @@ export function Card({
 
     elementWorldRef.current.rotation.z = -swayX * 0.2;
     elementWorldRef.current.rotation.x = swayZ * 0.2;
-    
+
     // Update global physics registry position
     cardStates[type].pos.copy(elementWorldRef.current.position);
 
     // Elastic Collision Check Check against the other card
     const otherType = type === 'safe' ? 'globe' : 'safe';
     const other = cardStates[otherType];
-    
+
     if (other && cardStates[type].isDragging && !other.isDragging) {
-        const dist = cardStates[type].pos.distanceTo(other.pos);
-        const collisionRadiiSum = 3.5; // distance at which they theoretically hit visually
-        
-        if (dist < collisionRadiiSum && dist > 0.1) {
-             // Calculate bounce direction
-             const pushDir = other.pos.clone().sub(cardStates[type].pos).normalize();
-             
-             // The closer they are violently squashed, the harder the elastic push
-             const pushForce = Math.max(0, collisionRadiiSum - dist) * 15;
-             
-             // Inject violent elastic velocity into the OTHER element's spring so it bounces away freely
-             other.api.start({
-                 config: { mass: 1.5, tension: 400, friction: 15, velocity: [pushDir.x * pushForce, pushDir.y * pushForce, pushDir.z * pushForce] }
-             });
-        }
+      const dist = cardStates[type].pos.distanceTo(other.pos);
+      const collisionRadiiSum = 3.5; // distance at which they theoretically hit visually
+
+      if (dist < collisionRadiiSum && dist > 0.1) {
+        // Calculate bounce direction
+        const pushDir = other.pos.clone().sub(cardStates[type].pos).normalize();
+
+        // The closer they are violently squashed, the harder the elastic push
+        const pushForce = Math.max(0, collisionRadiiSum - dist) * 15;
+
+        // Inject violent elastic velocity into the OTHER element's spring so it bounces away freely
+        other.api.start({
+          config: { mass: 1.5, tension: 400, friction: 15, velocity: [pushDir.x * pushForce, pushDir.y * pushForce, pushDir.z * pushForce] }
+        });
+      }
     }
 
     const targetQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
@@ -255,7 +255,7 @@ export function Card({
             position={[0, 0, 0]}
           >
             {type === "safe" && (
-              <group position={[0, -0.5, 0]}>
+              <group position={[0, 0, 0]}>
                 {/* Centered Eyelet raised to 1.55 so it sits clearly above the Safe */}
                 <group position={[0, 1.55, 0]}>
                   <Cylinder args={[0.06, 0.06, 0.3, 16]} position={[0, -0.2, 0]}>

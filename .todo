@@ -1,3 +1,4 @@
-1. i should be able to use one element to hit the other one
-2. if i drag an element, it shouldn't snap back until i realease it
-3. the ring should be on top not inside the element. also the bth should have it
+1. i should be able to use one element to move the other one and it should move with it. i.e see this in reality as two elements tied on a single base respectively. ideally, when you use one to carry, hit or push the other it moves and works smoothly as you want 
+2. if i drag an element, it shouldn't snap back until I release it. do we need another library for this? please fix because it keeps snapping back before i release my mouse.
+3. fix control sliders logic
+4. fix element feel and smoothness on drag and collision
