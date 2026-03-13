@@ -1,12 +1,19 @@
 "use client";
 
-import { useRef, useState, useMemo } from 'react';
+import { useRef, useState, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useStore } from '../store';
 import { RoundedBox, Cylinder, Sphere, Torus, Extrude } from '@react-three/drei';
 import * as THREE from 'three';
 import { useDrag } from '@use-gesture/react';
 import { useSpring, a } from '@react-spring/three';
+
+// Global physics registry to allow elastic collisions between the separate Card components
+const cardStates: Record<string, {
+    pos: THREE.Vector3;
+    api: any;
+    isDragging: boolean;
+}> = {};
 
 export function Card({
   position = [0, 0, 0],
@@ -44,8 +51,19 @@ export function Card({
     config: { mass: 1, tension: 200, friction: 15 }
   }));
 
-  const bind = useDrag(({ movement: [x, y], active, down }) => {
+  // Ensure this card puts its API in the global physics registry
+  useEffect(() => {
+    if (!cardStates[type]) {
+        cardStates[type] = { pos: new THREE.Vector3(), api: api, isDragging: false };
+    } else {
+        cardStates[type].api = api;
+    }
+  }, [api, type]);
+
+  const bind = useDrag(({ movement: [x, y], active, down, velocity: [vx, vy], direction: [dx, dy] }) => {
     if (dropped) return;
+
+    cardStates[type].isDragging = down || active;
 
     const mappedX = x / 40;
     const mappedY = -y / 40;
@@ -60,7 +78,7 @@ export function Card({
       // law of Elastic Collision: high tension, low friction for major bounce on release
       api.start({
         position: position,
-        config: { mass: 2, tension: 500, friction: 10 }
+        config: { mass: 2, tension: 300, friction: 12, velocity: [vx * dx * 20, -vy * dy * 20, 0] } // Inherit swipe velocity for more elastic bounce
       });
     }
   });
@@ -105,6 +123,31 @@ export function Card({
 
     elementWorldRef.current.rotation.z = -swayX * 0.2;
     elementWorldRef.current.rotation.x = swayZ * 0.2;
+    
+    // Update global physics registry position
+    cardStates[type].pos.copy(elementWorldRef.current.position);
+
+    // Elastic Collision Check Check against the other card
+    const otherType = type === 'safe' ? 'globe' : 'safe';
+    const other = cardStates[otherType];
+    
+    if (other && cardStates[type].isDragging && !other.isDragging) {
+        const dist = cardStates[type].pos.distanceTo(other.pos);
+        const collisionRadiiSum = 3.5; // distance at which they theoretically hit visually
+        
+        if (dist < collisionRadiiSum && dist > 0.1) {
+             // Calculate bounce direction
+             const pushDir = other.pos.clone().sub(cardStates[type].pos).normalize();
+             
+             // The closer they are violently squashed, the harder the elastic push
+             const pushForce = Math.max(0, collisionRadiiSum - dist) * 15;
+             
+             // Inject violent elastic velocity into the OTHER element's spring so it bounces away freely
+             other.api.start({
+                 config: { mass: 1.5, tension: 400, friction: 15, velocity: [pushDir.x * pushForce, pushDir.y * pushForce, pushDir.z * pushForce] }
+             });
+        }
+    }
 
     const targetQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetRotationY);
     localSpinRef.current.quaternion.slerp(targetQ, delta * 8);
@@ -118,8 +161,8 @@ export function Card({
       const hookPos = new THREE.Vector3();
       elementWorldRef.current.getWorldPosition(hookPos);
 
-      // Track precisely to the top of the newly proportioned hook shape (Y=0.6) inside its group offset (Y=1.25)
-      const localHookOffset = new THREE.Vector3(-0.08, 1.25 + 0.6, 0).applyQuaternion(elementWorldRef.current.quaternion);
+      // Track precisely to the top of the hook shape (Y=0.6) inside its group offset (Y=1.65)
+      const localHookOffset = new THREE.Vector3(-0.08, 1.65 + 0.6, 0).applyQuaternion(elementWorldRef.current.quaternion);
       hookPos.add(localHookOffset);
 
       chainLinkRef.current.position.copy(anchorPos).lerp(hookPos, 0.5);
@@ -190,8 +233,8 @@ export function Card({
         {...bind() as any}
         ref={elementWorldRef}
       >
-        {/* Golden Hook explicitly offset so its inner lower arc X=0, Y=1.1, passing perfectly through a Y=1.1 centered Torus */}
-        <group position={[-0.08, 1.25, 0]} onClick={(e) => { e.stopPropagation(); handleHookClick(); }}>
+        {/* Golden Hook explicitly offset so its inner lower arc X=0, Y=1.5, passing perfectly through a Y=1.5 centered Torus */}
+        <group position={[-0.08, 1.65, 0]} onClick={(e) => { e.stopPropagation(); handleHookClick(); }}>
           <Extrude args={[hookShape.shape, { extrudePath: hookShape.curve, steps: 50, bevelEnabled: false }]}>
             <meshPhysicalMaterial {...accentMaterial} />
           </Extrude>
@@ -212,10 +255,10 @@ export function Card({
             position={[0, 0, 0]}
           >
             {type === "safe" && (
-              <group position={[0, -0.25, 0]}>
-                {/* Centered Eyelet embedded seamlessly at physical bounds (Safe is radius 1.25 + center -0.25 = 1.0) */}
-                <group position={[0, 1.15, 0]}>
-                  <Cylinder args={[0.06, 0.06, 0.1, 16]} position={[0, -0.1, 0]}>
+              <group position={[0, -0.5, 0]}>
+                {/* Centered Eyelet raised to 1.55 so it sits clearly above the Safe */}
+                <group position={[0, 1.55, 0]}>
+                  <Cylinder args={[0.06, 0.06, 0.3, 16]} position={[0, -0.2, 0]}>
                     <meshPhysicalMaterial {...accentMaterial} />
                   </Cylinder>
                   <Torus args={[0.08, 0.02, 16, 32]} position={[0, -0.05, 0]} rotation={[0, Math.PI / 2, 0]}>
@@ -255,8 +298,9 @@ export function Card({
 
             {type === "globe" && (
               <group position={[0, 0.0, 0]}>
-                <group position={[0, 1.15, 0]}>
-                  <Cylinder args={[0.06, 0.06, 0.1, 16]} position={[0, -0.1, 0]}>
+                {/* Centered Eyelet raised to 1.55 so it sits clearly above the Globe cage */}
+                <group position={[0, 1.55, 0]}>
+                  <Cylinder args={[0.06, 0.06, 0.25, 16]} position={[0, -0.15, 0]}>
                     <meshPhysicalMaterial {...accentMaterial} />
                   </Cylinder>
                   <Torus args={[0.08, 0.02, 16, 32]} position={[0, -0.05, 0]} rotation={[0, Math.PI / 2, 0]}>

@@ -44,38 +44,32 @@ const CustomSlider = ({
     let percentage = (clientX - rect.left) / rect.width;
     percentage = Math.max(0, Math.min(1, percentage));
 
-    // Calculate raw value
     let newValue = min + percentage * (max - min);
-    // Snap to step
     newValue = Math.round(newValue / step) * step;
-
     onChange(newValue);
   };
 
   const fillPercentage = ((value - min) / (max - min)) * 100;
 
   return (
-    <div className="flex flex-col border border-white/20 rounded-xl p-3 bg-black/40 backdrop-blur min-w-[150px] font-mono select-none">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-white text-xs">{label}</span>
-      </div>
+    <div className="flex flex-col border border-gray-600 rounded-[14px] p-4 bg-[#050505] min-w-[200px] font-mono select-none">
+      <span className="text-[#e0e0e0] text-[11px] mb-3">{label}</span>
+
       <div
         ref={trackRef}
-        className="w-full h-1 bg-white/20 rounded-full relative cursor-pointer"
+        className="w-full h-1.5 rounded-full relative cursor-pointer flex items-center bg-gradient-to-r from-[#4b8cde] via-[#a855f7] to-[#00e5ff]"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
+        {/* Thumb */}
         <div
-          className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-300"
-          style={{ width: `${fillPercentage}%`, pointerEvents: 'none' }}
-        />
-        <div
-          className="absolute top-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_5px_rgba(255,255,255,0.8)] -translate-y-1/2 -ml-1.5 cursor-grab active:cursor-grabbing"
+          className="absolute w-[18px] h-[18px] bg-white rounded-full -translate-x-1/2 cursor-grab active:cursor-grabbing border-[4px] border-[#222]"
           style={{ left: `${fillPercentage}%` }}
         />
       </div>
-      <div className="mt-2 text-[10px] text-white/70">
+
+      <div className="mt-3 text-[11px] text-[#e0e0e0]">
         {value.toFixed(2)}
       </div>
     </div>
