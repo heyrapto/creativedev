@@ -1,4 +1,156 @@
-1. i should be able to use one element to move the other one and it should move with it. i.e see this in reality as two elements tied on a single base respectively. ideally, when you use one to carry, hit or push the other it moves and works smoothly as you want 
-2. if i drag an element, it shouldn't snap back until I release it. do we need another library for this? please fix because it keeps snapping back before i release my mouse.
-3. fix control sliders logic
-4. fix element feel and smoothness on drag and collision
+# Requirements
+
+## 1. Linked Element Behavior (Important)
+
+The two elements must behave like **objects attached to the same base rig**.
+
+Real-world analogy:
+Two objects hanging from the same support pole.
+
+Expected behavior:
+
+* If one element **pushes, drags, or hits** the other, the other should **react naturally**
+* Movement should **transfer between elements**
+* Motion should feel **physically believable**
+* Movement should be **smooth and continuous**
+
+Do NOT allow them to behave like isolated objects.
+
+---
+
+# 2. Drag Behavior (Critical Fix)
+
+Current bug:
+When dragging an element it **snaps back before mouse release**.
+
+Correct behavior:
+
+* When dragging:
+
+  * the element should **stay attached to the cursor**
+  * it should **not snap back**
+* Only when the mouse **is released** should the spring physics resolve.
+
+If necessary, **rewrite the drag system**.
+
+Drag should feel:
+
+* responsive
+* smooth
+* inertia-based
+
+---
+
+# 3. Slider Controls Logic
+
+The control sliders must behave correctly.
+
+### Speed
+
+Controls **rotation speed of the elements**.
+
+Higher value → faster rotation.
+
+---
+
+### Wind
+
+Wind should apply **a constant force pushing the elements to the right**.
+
+Important:
+
+* Both elements should move **together**
+* The **top pole/anchor must NOT move**
+* Only the hanging elements should react
+
+---
+
+### Intensity
+
+Controls **how strong the environmental effects are**.
+
+Example:
+
+* wind strength multiplier
+* sway amplitude
+
+---
+
+### Saturation
+
+Controls **color saturation of the element materials**.
+
+Increasing saturation → richer colors.
+
+---
+
+# 4. Drag Feel & Collision Smoothness
+
+Fix the interaction feel.
+
+Requirements:
+
+* No jitter
+* No teleporting
+* No snapping
+
+Collisions must feel:
+
+* elastic
+* smooth
+* responsive
+
+Dragging one element into the other should cause **a believable push reaction**.
+
+---
+
+# 5. Performance Optimization (Important)
+
+The current implementation is **slow to load on some devices**.
+
+Improve performance by:
+
+* reducing unnecessary re-renders
+* minimizing geometry complexity
+* avoiding expensive calculations inside `useFrame`
+* memoizing materials and geometry
+* avoiding per-frame object allocations
+
+The scene must feel **smooth even on mid-range devices**.
+
+---
+
+# 6. Idle Motion
+
+The elements must **not stay static**.
+
+Add subtle idle animation:
+
+* slow rotation
+* slight hanging sway
+
+This should happen even when the user is not interacting.
+
+---
+
+# 7. Pole Behavior
+
+The pole / chain system should behave like a **fixed anchor**.
+
+Rules:
+
+* top anchor stays fixed
+* pole stretches dynamically
+* hanging elements sway beneath it
+
+---
+
+# 8. Code Quality
+
+The solution should:
+
+* refactor messy logic
+* simplify physics interactions
+* remove unnecessary complexity
+* maintain React Three Fiber best practices
+* produce **clean readable code**
