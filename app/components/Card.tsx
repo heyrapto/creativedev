@@ -12,22 +12,20 @@ import { useSpring, a } from '@react-spring/three';
 // Module-level physics registry — shared across all Card instances
 // ---------------------------------------------------------------------------
 interface CardPhysicsState {
-  pos: THREE.Vector3;   // world position this frame
-  vel: THREE.Vector3;   // current velocity
+  worldX: number;           // element's world X this frame (for collision)
+  angularVel: number;       // angular velocity for collision transfer
   isDragging: boolean;
-  radius: number;       // collision sphere radius
+  radius: number;
+  applyImpulse: (angImpulse: number) => void;
 }
 const registry = new Map<string, CardPhysicsState>();
 
-// Stagger idle phases across instances (module-level counter, not per-render)
+// Counter for staggering idle phases (no Math.random in render)
 let _instanceCounter = 0;
 
-// Scratch vectors — allocated once, reused every frame (no GC pressure)
-const _scratch1 = new THREE.Vector3();
-const _scratch2 = new THREE.Vector3();
-const _anchorPos = new THREE.Vector3();
-const _hookPos = new THREE.Vector3();
-const _hookLocalOffset = new THREE.Vector3();
+// Pre-allocated scratch vectors — zero GC pressure in useFrame
+const _anchorWorld = new THREE.Vector3();
+const _hookWorld = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------
 // Card component
@@ -41,110 +39,111 @@ export function Card({
 }) {
   const { gl, camera } = useThree();
 
-  // Refs — zero React re-renders for physics values
-  const groupRef = useRef<THREE.Group>(null);
-  const localSpinRef = useRef<THREE.Group>(null);
-  const poleRef = useRef<THREE.Group>(null);
+  // ---- Visual refs ----
+  // anchorGroupRef: pivot placed at the fixed top anchor.
+  //   Its rotation.z = pendulum angle, so the entire chain+hook+element tilts as one.
+  const anchorGroupRef = useRef<THREE.Group>(null);
+  const poleRef = useRef<THREE.Group>(null);   // vertical cylinder inside the pivot
+  const localSpinRef = useRef<THREE.Group>(null); // element Y-spin (isolated)
   const elementDropRef = useRef<THREE.Group>(null);
 
-  // Physics state held in refs
-  const posRef = useRef(new THREE.Vector3(...position));
-  const velRef = useRef(new THREE.Vector3());
-  const rotVelRef = useRef(0);
-  const idlePhaseRef = useRef((_instanceCounter++ % 10) * 10); // stagger, no Math.random
+  // ---- Pendulum physics state (all refs → zero re-renders per frame) ----
+  const angleRef = useRef(0);      // radians from vertical; positive = right
+  const angVelRef = useRef(0);     // rad/s
+  const rotVelRef = useRef(0);     // element Y-spin velocity
+  const idlePhaseRef = useRef((_instanceCounter++ % 10) * 10); // stagger
 
-  // Drag state
+  // Hanging system dimensions
+  const HANG_LENGTH = 12; // distance from anchor top to element centre (scene units)
+
+  // ---- Drag state ----
   const isDraggingRef = useRef(false);
-  const dragOffsetRef = useRef(new THREE.Vector3()); // cursor world pos at drag start minus element pos
 
-  // Drop animation spring (isolated — doesn't touch physics)
+  // ---- Drop spring (isolated from pendulum) ----
   const [dropSpring, dropApi] = useSpring(() => ({
     yOffset: 0,
     config: { mass: 1, tension: 120, friction: 14 },
   }));
   const isDroppedRef = useRef(false);
 
-  // Hover state for cursor
+  // ---- Hover ----
   const [hovered, setHovered] = useState(false);
 
-  // Sliders from store
+  // ---- Store ----
   const intensity = useStore((s) => s.intensity);
   const speed = useStore((s) => s.speed);
   const wind = useStore((s) => s.wind);
   const saturation = useStore((s) => s.saturation);
   const glare = useStore((s) => s.glare);
 
-  // Register in the module-level registry
+  // ---- Registry ----
   useEffect(() => {
-    registry.set(type, {
-      pos: posRef.current,
-      vel: velRef.current,
+    const entry: CardPhysicsState = {
+      worldX: position[0],
+      angularVel: 0,
       isDragging: false,
       radius: type === 'safe' ? 1.6 : 1.4,
-    });
+      applyImpulse: (imp) => { angVelRef.current += imp; },
+    };
+    registry.set(type, entry);
     return () => { registry.delete(type); };
-  }, [type]);
+  }, [type, position]);
 
-  // Cursor style
+  // ---- Cursor ----
   useEffect(() => {
     document.body.style.cursor = hovered ? 'grab' : 'default';
     return () => { document.body.style.cursor = 'default'; };
   }, [hovered]);
 
   // ---------------------------------------------------------------------------
-  // Project screen coords → world XY plane at element's Z depth
+  // Convert clientX → pendulum angle (projects cursor onto the world XZ plane)
   // ---------------------------------------------------------------------------
-  const screenToWorld = useCallback((x: number, y: number): THREE.Vector3 => {
+  const screenToAngle = useCallback((clientX: number) => {
     const rect = gl.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector3(
-      ((x - rect.left) / rect.width) * 2 - 1,
-      -((y - rect.top) / rect.height) * 2 + 1,
-      0.5,
-    );
-    ndc.unproject(camera);
-    const dir = ndc.sub(camera.position).normalize();
-    const t = (posRef.current.z - camera.position.z) / dir.z;
-    return camera.position.clone().add(dir.multiplyScalar(t));
-  }, [gl, camera]);
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const v = new THREE.Vector3(ndcX, 0, 0.5).unproject(camera);
+    const dir = v.sub(camera.position).normalize();
+    const t = -camera.position.z / dir.z;
+    const worldX = camera.position.x + dir.x * t;
+    return Math.atan2(worldX - position[0], HANG_LENGTH);
+  }, [gl, camera, position]);
 
   // ---------------------------------------------------------------------------
-  // Drag binding
+  // Drag — sets pendulum angle directly while dragging
   // ---------------------------------------------------------------------------
   const bind = useDrag(
-    ({ xy: [x, y], first, last, velocity: [vx, vy], direction: [dx, dy], active }) => {
+    ({ xy: [x], first, last, velocity: [vx], direction: [dx] }) => {
       if (isDroppedRef.current) return;
 
       if (first) {
         isDraggingRef.current = true;
         document.body.style.cursor = 'grabbing';
-        const worldPos = screenToWorld(x, y);
-        dragOffsetRef.current.copy(posRef.current).sub(worldPos);
-        velRef.current.set(0, 0, 0);
+        angVelRef.current = 0;
       }
 
-      if (active && !last) {
-        // Track cursor exactly — zero spring involvement
-        const worldPos = screenToWorld(x, y);
-        posRef.current.copy(worldPos).add(dragOffsetRef.current);
-        velRef.current.set(0, 0, 0);
+      if (!last) {
+        angleRef.current = screenToAngle(x);
       }
 
       if (last) {
         isDraggingRef.current = false;
         document.body.style.cursor = hovered ? 'grab' : 'default';
-        // Inject inertia in world units (velocity is px/ms → scale to scene units)
-        velRef.current.set(vx * dx * 0.15, -vy * dy * 0.15, 0);
+        // Convert swipe speed (px/ms) → angular velocity (rad/s)
+        const W = gl.domElement.clientWidth;
+        angVelRef.current = (vx * dx * 0.004 * HANG_LENGTH * 60) / W;
       }
 
-      // Keep registry in sync
-      const state = registry.get(type);
-      if (state) state.isDragging = isDraggingRef.current;
+      const entry = registry.get(type);
+      if (entry) {
+        entry.isDragging = isDraggingRef.current;
+        entry.worldX = position[0] + Math.sin(angleRef.current) * HANG_LENGTH;
+      }
     },
     { pointer: { capture: true } },
   );
 
   // ---------------------------------------------------------------------------
-  // Hook click — drop animation
+  // Hook click — drop element (isolated from pendulum physics)
   // ---------------------------------------------------------------------------
   const handleHookClick = useCallback(() => {
     if (isDroppedRef.current) return;
@@ -160,140 +159,113 @@ export function Card({
   }, [dropApi]);
 
   // ---------------------------------------------------------------------------
-  // Per-frame physics
+  // useFrame — pendulum physics + rendering
   // ---------------------------------------------------------------------------
-  useFrame((state, delta) => {
-    if (!groupRef.current || !localSpinRef.current) return;
+  useFrame((_state, delta) => {
+    if (!anchorGroupRef.current || !localSpinRef.current) return;
 
-    const dt = Math.min(delta, 0.05); // cap at 50ms to avoid spiral on tab switch
+    const dt = Math.min(delta, 0.05);
     const time = (idlePhaseRef.current += dt);
 
-    // --- Read store values (physics sliders only) ---
-    const storeSpeed = speed;
-    const storeWind = wind;
-
-    // --- Rest position: base + wind push (wind alone, no intensity) ---
-    // Wind scales naturally: 0=none, 0.5=light, 1=noticeable, 2+=strong
-    const windPush = storeWind * 2.5;
-
-    // Idle sway: a fixed organic constant — not slider-driven
-    const idleSway = Math.sin(time * 0.45) * 0.07;
-    _scratch1.set(position[0] + windPush + idleSway, position[1], position[2]);
-
+    // ---- 1. Pendulum physics (skip while dragging or dropped) ----
     if (!isDraggingRef.current && !isDroppedRef.current) {
-      // Spring force toward rest position
-      const spring = 4.5;
-      const damping = 3.8;
+      // Wind: continuous force + natural turbulence
+      const turbulence = 1
+        + Math.sin(time * 0.55) * 0.2
+        + Math.sin(time * 1.35) * 0.09;
+      const windAcc = wind * turbulence * 0.5; // angular acceleration (rad/s²)
 
-      _scratch2.copy(_scratch1).sub(posRef.current); // displacement
-      velRef.current.addScaledVector(_scratch2, spring * dt);
-      velRef.current.multiplyScalar(1 - damping * dt);
-      posRef.current.addScaledVector(velRef.current, dt);
+      // Gravity restoring force (pendulum equation)
+      const G = 9.8;
+      const restoring = -(G / HANG_LENGTH) * Math.sin(angleRef.current);
+
+      // Air damping (keeps oscillation organic, not infinite)
+      const AIR_DAMPING = 1.6;
+      const drag = -angVelRef.current * AIR_DAMPING;
+
+      // Integrate
+      angVelRef.current += (windAcc + restoring + drag) * dt;
+      angleRef.current += angVelRef.current * dt;
+
+      // Hard clamp: max ~55° tilt
+      angleRef.current = THREE.MathUtils.clamp(
+        angleRef.current, -Math.PI * 0.31, Math.PI * 0.31,
+      );
     }
 
-    // --- Elastic collision with other card ---
+    // ---- 2. Elastic collision with other card ----
     const otherType = type === 'safe' ? 'globe' : 'safe';
     const self = registry.get(type);
     const other = registry.get(otherType);
 
     if (self && other) {
-      self.pos.copy(posRef.current);
+      const myX = position[0] + Math.sin(angleRef.current) * HANG_LENGTH;
+      self.worldX = myX;
+      self.angularVel = angVelRef.current;
       self.isDragging = isDraggingRef.current;
 
-      const dist = posRef.current.distanceTo(other.pos);
+      const dist = Math.abs(myX - other.worldX);
       const minDist = self.radius + other.radius;
 
       if (dist < minDist && dist > 0.001) {
-        const overlap = minDist - dist;
-        _scratch2.copy(other.pos).sub(posRef.current).normalize();
+        // Linearised tangential velocities
+        const cosA = Math.cos(angleRef.current);
+        const myVx = angVelRef.current * cosA * HANG_LENGTH;
+        const otherVx = other.angularVel * Math.cos(Math.asin(
+          THREE.MathUtils.clamp((other.worldX - position[0]) / HANG_LENGTH, -1, 1),
+        )) * HANG_LENGTH;
 
-        // Relative velocity
-        const relVelAlongNormal = velRef.current.dot(_scratch2) - other.vel.dot(_scratch2);
+        const sign = Math.sign(other.worldX - myX);
+        if ((myVx - otherVx) * sign > 0) {
+          const restitution = 0.7;
+          const relV = myVx - otherVx;
+          const J = -(1 + restitution) * relV * 0.5;
+          const dAngSelf = J / (cosA * HANG_LENGTH + 0.001);
 
-        // Only resolve if approaching
-        if (relVelAlongNormal < 0) {
-          const restitution = 0.75; // elasticity
-          const impulse = -(1 + restitution) * relVelAlongNormal * 0.5;
-
-          // Apply impulse to self (push away from other)
-          velRef.current.addScaledVector(_scratch2, -impulse);
-
-          // Apply impulse to other (push away from self) — only if not dragging
-          if (!other.isDragging) {
-            other.vel.addScaledVector(_scratch2, impulse);
-          }
-        }
-
-        // Positional correction to prevent overlap
-        if (!isDraggingRef.current) {
-          posRef.current.addScaledVector(_scratch2, -overlap * 0.4);
+          angVelRef.current += dAngSelf;
+          if (!other.isDragging) other.applyImpulse(-dAngSelf);
         }
       }
     }
 
-    // --- Apply position to group ---
-    groupRef.current.position.copy(posRef.current);
+    // ---- 3. Apply angle → pivot group ----
+    // The anchor pivot is fixed at the ceiling attachment point.
+    // Rotating it by angleRef.current tilts the entire rig (pole + hook + element).
+    anchorGroupRef.current.rotation.z = angleRef.current;
 
-    // Tilt: driven purely by velocity and wind (no intensity multiplier)
-    // Wind tilt: elements lean right proportional to wind strength
-    const windTilt = storeWind * 0.07;
-    groupRef.current.rotation.z = THREE.MathUtils.lerp(
-      groupRef.current.rotation.z,
-      -velRef.current.x * 0.12 - windTilt,
-      dt * 6,
-    );
-    groupRef.current.rotation.x = THREE.MathUtils.lerp(
-      groupRef.current.rotation.x,
-      velRef.current.y * 0.08,
-      dt * 6,
-    );
-
-    // --- Spin / idle rotation (speed-controlled only) ---
-    if (hovered) {
-      rotVelRef.current += storeSpeed * 0.1 * dt;
-    } else {
-      rotVelRef.current += storeSpeed * 0.08 * dt;
+    // ---- 4. Pole stretch ----
+    if (poleRef.current) {
+      // Pole lives in local pivot space, pointing straight down (–Y)
+      const hookLocalY = -(HANG_LENGTH - 1.65);
+      _anchorWorld.setFromMatrixPosition(anchorGroupRef.current.matrixWorld);
+      _hookWorld.set(0, hookLocalY, 0)
+        .applyMatrix4(anchorGroupRef.current.matrixWorld);
+      const poleDist = _anchorWorld.distanceTo(_hookWorld);
+      poleRef.current.scale.set(1, poleDist, 1);
+      // Centre the pole between anchor and hook (local Y)
+      poleRef.current.position.set(0, hookLocalY * 0.5, 0);
     }
+
+    // ---- 5. Element spin ----
+    rotVelRef.current += (hovered ? speed * 0.1 : speed * 0.055) * dt;
     rotVelRef.current *= 0.96;
     localSpinRef.current.rotation.y += rotVelRef.current;
-
-    // --- Pole stretch ---
-    if (poleRef.current) {
-      _anchorPos.set(position[0], position[1] + 12, position[2]);
-      groupRef.current.getWorldPosition(_hookPos);
-      // Offset to hook top
-      _hookLocalOffset.set(-0.08, 1.65 + 0.6, 0);
-      _hookLocalOffset.applyQuaternion(groupRef.current.quaternion);
-      _hookPos.add(_hookLocalOffset);
-
-      const midpoint = _anchorPos.clone().lerp(_hookPos, 0.5);
-      poleRef.current.position.copy(midpoint);
-      poleRef.current.lookAt(_hookPos);
-
-      const poleDist = _anchorPos.distanceTo(_hookPos);
-      poleRef.current.scale.set(1, 1, poleDist);
-    }
   });
 
   // ---------------------------------------------------------------------------
-  // Materials — intensity drives visuals ONLY
+  // Materials
   // ---------------------------------------------------------------------------
   const materialProps = useMemo(() => {
-    // intensity → iridescence strength, clearcoat, and color vibrancy
-    const iridescenceStrength = THREE.MathUtils.clamp(intensity, 0, 1);
-    const clearcoatStrength = THREE.MathUtils.clamp(glare + intensity * 0.5, 0, 5);
-    const iridMin = 80 + intensity * 220;   // 80–300
-    const iridMax = 250 + intensity * 550;  // 250–800
-
+    const irid = THREE.MathUtils.clamp(intensity, 0, 1);
+    const cc = THREE.MathUtils.clamp(glare + intensity * 0.5, 0, 5);
     return {
       metalness: 0.85 + intensity * 0.12,
       roughness: Math.max(0.02, 0.18 - intensity * 0.12),
-      clearcoat: clearcoatStrength,
+      clearcoat: cc,
       clearcoatRoughness: Math.max(0.01, 0.1 - intensity * 0.07),
-      iridescence: iridescenceStrength,
+      iridescence: irid,
       iridescenceIOR: 1.4 + intensity * 0.4,
-      iridescenceThicknessRange: [iridMin, iridMax] as [number, number],
-      // saturation controls hue richness; intensity boosts lightness toward vivid
+      iridescenceThicknessRange: [80 + intensity * 220, 250 + intensity * 550] as [number, number],
       color: new THREE.Color().setHSL(
         0.6,
         saturation * 0.9 + intensity * 0.1,
@@ -310,7 +282,7 @@ export function Card({
     color: new THREE.Color('#ffaa00'),
   }), []);
 
-  // Hook geometry
+  // Hook J-curve geometry
   const hookShape = useMemo(() => {
     const shape = new THREE.Shape();
     shape.absarc(0, 0, 0.015, 0, Math.PI * 2, false);
@@ -324,9 +296,7 @@ export function Card({
     return { shape, curve };
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Eyelet — shared between safe and globe
-  // ---------------------------------------------------------------------------
+  // Eyelet ring component — gold ring + stem at the top of each element
   const Eyelet = () => (
     <group position={[0, 1.6, 0]}>
       <Cylinder args={[0.06, 0.06, 0.32, 16]} position={[0, -0.18, 0]}>
@@ -339,112 +309,127 @@ export function Card({
   );
 
   // ---------------------------------------------------------------------------
-  // JSX
+  // JSX — scene hierarchy:
+  //
+  //  <group>  (world root)
+  //    <mesh> top anchor torus (fixed world position)
+  //    <group anchorGroupRef>  ← pivot at anchor; rotation.z = pendulum angle
+  //      <group poleRef>       ← gold pole, scaled to HANG_LENGTH
+  //      hook                  ← at bottom of pivot (local y = -(HANG_LENGTH - 1.65))
+  //      elementDropRef        ← drop spring offset
+  //        localSpinRef        ← element Y-spin
+  //          Safe / Globe mesh
   // ---------------------------------------------------------------------------
   return (
     <group>
-      {/* Fixed top anchor ring */}
+      {/* Fixed top anchor ring — never moves */}
       <mesh position={[position[0], position[1] + 12, position[2]]}>
         <Torus args={[0.2, 0.05, 16, 32]} rotation={[Math.PI / 2, 0, 0]}>
           <meshPhysicalMaterial {...accentMaterial} />
         </Torus>
       </mesh>
 
-      {/* Stretching gold pole */}
-      <group ref={poleRef}>
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.022, 0.022, 1, 16]} />
-          <meshPhysicalMaterial {...accentMaterial} />
-        </mesh>
-      </group>
-
-      {/* Physics body — moves with posRef each frame */}
-      <group ref={groupRef} {...(bind() as object)}>
-        {/* Gold J-Hook (click to drop) */}
-        <group
-          position={[-0.08, 1.65, 0]}
-          onClick={(e) => { e.stopPropagation(); handleHookClick(); }}
-        >
-          <Extrude args={[hookShape.shape, { extrudePath: hookShape.curve, steps: 50, bevelEnabled: false }]}>
+      {/* Pivot group — positioned at anchor, rotated by pendulum angle */}
+      <group
+        ref={anchorGroupRef}
+        position={[position[0], position[1] + 12, position[2]]}
+      >
+        {/* Gold pole — vertical, scales to fill HANG_LENGTH */}
+        <group ref={poleRef}>
+          <mesh>
+            <cylinderGeometry args={[0.022, 0.022, 1, 16]} />
             <meshPhysicalMaterial {...accentMaterial} />
-          </Extrude>
-          <Sphere args={[0.015, 12, 12]} position={[0.15, -0.05, 0]}>
-            <meshPhysicalMaterial {...accentMaterial} />
-          </Sphere>
+          </mesh>
         </group>
 
-        {/* Element — drops independently via spring */}
-        <a.group ref={elementDropRef} position-y={dropSpring.yOffset}>
+        {/* Everything below the anchor pivot, at -(HANG_LENGTH - gap) local Y */}
+        <group position={[0, -(HANG_LENGTH - 1.65), 0]} {...(bind() as object)}>
+
+          {/* Gold J-Hook */}
           <group
-            ref={localSpinRef}
-            onPointerOver={() => setHovered(true)}
-            onPointerOut={() => setHovered(false)}
+            position={[-0.08, 0, 0]}
+            onClick={(e) => { e.stopPropagation(); handleHookClick(); }}
           >
-            {type === "safe" && (
-              <group>
-                <Eyelet />
-                {/* Safe body */}
-                <RoundedBox args={[2.5, 2.5, 2.5]} radius={0.2} smoothness={4}>
-                  <meshPhysicalMaterial {...materialProps} />
-                </RoundedBox>
-                {/* Safe dial face */}
-                <group position={[0, 0, 1.3]}>
-                  <Cylinder args={[0.8, 0.8, 0.1, 32]} rotation={[Math.PI / 2, 0, 0]}>
-                    <meshPhysicalMaterial metalness={0.9} roughness={0.05} color="#111" />
-                  </Cylinder>
-                  <group position={[0, 0, 0.12]}>
-                    <Torus args={[0.5, 0.05, 16, 32]}>
-                      <meshPhysicalMaterial {...accentMaterial} />
-                    </Torus>
-                    <Cylinder args={[0.05, 0.05, 1, 12]} rotation={[0, 0, Math.PI / 4]}>
-                      <meshPhysicalMaterial {...accentMaterial} />
+            <Extrude args={[hookShape.shape, { extrudePath: hookShape.curve, steps: 50, bevelEnabled: false }]}>
+              <meshPhysicalMaterial {...accentMaterial} />
+            </Extrude>
+            <Sphere args={[0.015, 12, 12]} position={[0.15, -0.05, 0]}>
+              <meshPhysicalMaterial {...accentMaterial} />
+            </Sphere>
+          </group>
+
+          {/* Element — drops independently via spring */}
+          <a.group ref={elementDropRef} position-y={dropSpring.yOffset}>
+            <group
+              ref={localSpinRef}
+              onPointerOver={() => setHovered(true)}
+              onPointerOut={() => setHovered(false)}
+            >
+
+              {type === "safe" && (
+                <group>
+                  <Eyelet />
+                  <RoundedBox args={[2.5, 2.5, 2.5]} radius={0.2} smoothness={4}>
+                    <meshPhysicalMaterial {...materialProps} />
+                  </RoundedBox>
+                  {/* Dial face */}
+                  <group position={[0, 0, 1.3]}>
+                    <Cylinder args={[0.8, 0.8, 0.1, 32]} rotation={[Math.PI / 2, 0, 0]}>
+                      <meshPhysicalMaterial metalness={0.9} roughness={0.05} color="#111" />
                     </Cylinder>
-                    <Cylinder args={[0.05, 0.05, 1, 12]} rotation={[0, 0, -Math.PI / 4]}>
-                      <meshPhysicalMaterial {...accentMaterial} />
-                    </Cylinder>
-                    <Cylinder args={[0.1, 0.1, 0.15, 12]} rotation={[Math.PI / 2, 0, 0]}>
-                      <meshPhysicalMaterial {...accentMaterial} />
-                    </Cylinder>
+                    <group position={[0, 0, 0.12]}>
+                      <Torus args={[0.5, 0.05, 16, 32]}>
+                        <meshPhysicalMaterial {...accentMaterial} />
+                      </Torus>
+                      <Cylinder args={[0.05, 0.05, 1, 12]} rotation={[0, 0, Math.PI / 4]}>
+                        <meshPhysicalMaterial {...accentMaterial} />
+                      </Cylinder>
+                      <Cylinder args={[0.05, 0.05, 1, 12]} rotation={[0, 0, -Math.PI / 4]}>
+                        <meshPhysicalMaterial {...accentMaterial} />
+                      </Cylinder>
+                      <Cylinder args={[0.1, 0.1, 0.15, 12]} rotation={[Math.PI / 2, 0, 0]}>
+                        <meshPhysicalMaterial {...accentMaterial} />
+                      </Cylinder>
+                    </group>
+                  </group>
+                  {/* Shield badge */}
+                  <group position={[-1.2, -0.8, 1.4]} scale={0.7}>
+                    <RoundedBox args={[1.5, 1.5, 0.2]} radius={0.1} smoothness={2} rotation={[0, 0, Math.PI / 4]}>
+                      <meshPhysicalMaterial {...accentMaterial} color="#90ee90" />
+                    </RoundedBox>
                   </group>
                 </group>
-                {/* Shield badge */}
-                <group position={[-1.2, -0.8, 1.4]} scale={0.7}>
-                  <RoundedBox args={[1.5, 1.5, 0.2]} radius={0.1} smoothness={2} rotation={[0, 0, Math.PI / 4]}>
-                    <meshPhysicalMaterial {...accentMaterial} color="#90ee90" />
-                  </RoundedBox>
-                </group>
-              </group>
-            )}
+              )}
 
-            {type === "globe" && (
-              <group>
-                <Eyelet />
-                {/* Globe sphere */}
-                <Sphere args={[1, 32, 32]}>
-                  <meshPhysicalMaterial {...materialProps} transmission={0.15} roughness={0.4} />
-                </Sphere>
-                {/* Cage rings */}
-                {[0, Math.PI / 4, Math.PI / 2, Math.PI * 0.75].map((angle, i) => (
-                  <Torus key={i} args={[1.3, 0.07, 12, 32]} rotation={[0, angle, 0]}>
+              {type === "globe" && (
+                <group>
+                  <Eyelet />
+                  <Sphere args={[1, 32, 32]}>
+                    <meshPhysicalMaterial {...materialProps} transmission={0.15} roughness={0.4} />
+                  </Sphere>
+                  {[0, Math.PI / 4, Math.PI / 2, Math.PI * 0.75].map((angle, i) => (
+                    <Torus key={i} args={[1.3, 0.07, 12, 32]} rotation={[0, angle, 0]}>
+                      <meshPhysicalMaterial {...materialProps} />
+                    </Torus>
+                  ))}
+                  <Torus args={[1.3, 0.07, 12, 32]} rotation={[Math.PI / 2, 0, 0]}>
                     <meshPhysicalMaterial {...materialProps} />
                   </Torus>
-                ))}
-                <Torus args={[1.3, 0.07, 12, 32]} rotation={[Math.PI / 2, 0, 0]}>
-                  <meshPhysicalMaterial {...materialProps} />
-                </Torus>
-                {/* Padlock */}
-                <group position={[1, -1, 1.3]} scale={0.8}>
-                  <RoundedBox args={[1, 0.8, 0.4]} radius={0.1} smoothness={2}>
-                    <meshPhysicalMaterial {...accentMaterial} />
-                  </RoundedBox>
-                  <Torus args={[0.3, 0.09, 12, 24]} position={[0, 0.5, 0]}>
-                    <meshPhysicalMaterial metalness={1} roughness={0.2} color="#dddddd" />
-                  </Torus>
+                  {/* Padlock */}
+                  <group position={[1, -1, 1.3]} scale={0.8}>
+                    <RoundedBox args={[1, 0.8, 0.4]} radius={0.1} smoothness={2}>
+                      <meshPhysicalMaterial {...accentMaterial} />
+                    </RoundedBox>
+                    <Torus args={[0.3, 0.09, 12, 24]} position={[0, 0.5, 0]}>
+                      <meshPhysicalMaterial metalness={1} roughness={0.2} color="#dddddd" />
+                    </Torus>
+                  </group>
                 </group>
-              </group>
-            )}
-          </group>
-        </a.group>
+              )}
+
+            </group>
+          </a.group>
+        </group>
       </group>
     </group>
   );
