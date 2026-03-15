@@ -1,158 +1,138 @@
-# Requirements
 
-## 1. Linked Element Behavior (Important)
 
-The two elements must behave like **objects attached to the same base rig**.
+# Updated Control Logic (Important Fix)
 
-Real-world analogy:
-Two objects hanging from the same support pole.
+The slider controls must follow **strict single-responsibility rules**.
+
+Each control should affect **only one system**.
+
+---
+
+# 1. Intensity (Color Only)
+
+Intensity **must NOT affect physics or movement**.
+
+It should **only control the visual strength of the material colors**.
+
+Expected effect:
+
+* Higher intensity → stronger iridescent / rainbow effect
+* Colors become sharper and more vibrant
+* Materials appear more reflective and vivid
+
+Possible implementation ideas:
+
+* increase `iridescence`
+* increase `iridescenceThicknessRange`
+* slightly increase `clearcoat`
+* boost color saturation
+
+Result should look like **shiny rainbow metal when intensity is high**.
+
+Intensity must **never affect**:
+
+* wind
+* sway
+* rotation
+* physics
+* drag behavior
+
+---
+
+# 2. Wind Behavior (Physics)
+
+Wind represents **directional force blowing from the left side of the screen**.
 
 Expected behavior:
 
-* If one element **pushes, drags, or hits** the other, the other should **react naturally**
-* Movement should **transfer between elements**
-* Motion should feel **physically believable**
-* Movement should be **smooth and continuous**
+* wind pushes hanging elements **to the right**
+* the stronger the wind value, the **stronger the push**
+* motion should feel **continuous**, not jittery
 
-Do NOT allow them to behave like isolated objects.
+Important rules:
 
----
+* wind affects **only the hanging elements**
+* the **top pole / anchor must remain fixed**
+* both elements should react **consistently**
 
-# 2. Drag Behavior (Critical Fix)
+The motion should feel like:
 
-Current bug:
-When dragging an element it **snaps back before mouse release**.
+> Two objects hanging from a pole while wind blows from the left.
 
-Correct behavior:
+Visual characteristics:
 
-* When dragging:
+* elements tilt slightly
+* they sway
+* they drift slightly right
+* strong wind almost pushes them **toward the edge of the screen**
 
-  * the element should **stay attached to the cursor**
-  * it should **not snap back**
-* Only when the mouse **is released** should the spring physics resolve.
-
-If necessary, **rewrite the drag system**.
-
-Drag should feel:
-
-* responsive
-* smooth
-* inertia-based
+But they should **never detach or teleport**.
 
 ---
 
-# 3. Slider Controls Logic
+# Wind Strength Scaling
 
-The control sliders must behave correctly.
+Wind should scale gradually.
 
-### Speed
+Example behavior:
 
-Controls **rotation speed of the elements**.
+```
+wind = 0 → no movement
+wind = 0.5 → light sway
+wind = 1 → noticeable push
+wind = 2 → strong sway and rightward tilt
+wind = 3+ → strong force like real wind gusts
+```
 
-Higher value → faster rotation.
+Movement should still look **natural and damped**.
 
----
+Avoid:
 
-### Wind
-
-Wind should apply **a constant force pushing the elements to the right**.
-
-Important:
-
-* Both elements should move **together**
-* The **top pole/anchor must NOT move**
-* Only the hanging elements should react
-
----
-
-### Intensity
-
-Controls **how strong the environmental effects are**.
-
-Example:
-
-* wind strength multiplier
-* sway amplitude
+* jitter
+* oscillation explosions
+* unrealistic acceleration
 
 ---
 
-### Saturation
+# 3. Combined Motion Rules
 
-Controls **color saturation of the element materials**.
+Wind should combine with idle animation.
 
-Increasing saturation → richer colors.
+Final motion should include:
 
----
+• idle rotation
+• subtle hanging sway
+• wind push
 
-# 4. Drag Feel & Collision Smoothness
-
-Fix the interaction feel.
-
-Requirements:
-
-* No jitter
-* No teleporting
-* No snapping
-
-Collisions must feel:
-
-* elastic
-* smooth
-* responsive
-
-Dragging one element into the other should cause **a believable push reaction**.
+But wind should always feel like the **dominant force when high**.
 
 ---
 
-# 5. Performance Optimization (Important)
+# 4. Realism Goal
 
-The current implementation is **slow to load on some devices**.
+The final motion should resemble:
 
-Improve performance by:
+> Two metal objects hanging from a hook outdoors while wind pushes them.
 
-* reducing unnecessary re-renders
-* minimizing geometry complexity
-* avoiding expensive calculations inside `useFrame`
-* memoizing materials and geometry
-* avoiding per-frame object allocations
+They should:
 
-The scene must feel **smooth even on mid-range devices**.
+* swing
+* tilt
+* slightly drift right
+* settle when wind decreases
 
----
-
-# 6. Idle Motion
-
-The elements must **not stay static**.
-
-Add subtle idle animation:
-
-* slow rotation
-* slight hanging sway (if wind is not at least 0)
-
-This should happen even when the user is not interacting.
+Movement should feel **organic and smooth**, not procedural or robotic.
 
 ---
 
-# 7. Pole Behavior
+# 5. Performance Requirement
 
-The pole / chain system should behave like a **fixed anchor**.
+Wind simulation must **not introduce frame lag**.
 
-Rules:
+Avoid:
 
-* top anchor stays fixed
-* pole stretches dynamically
-* hanging elements sway beneath it
+* heavy calculations in `useFrame`
+* unnecessary vector allocations
+* repeated object creation
 
----
-
-# 8. Code Quality
-
-The solution should:
-
-* refactor messy logic
-* simplify physics interactions
-* remove unnecessary complexity
-* maintain React Three Fiber best practices
-* produce **clean readable code**
-
-Extra note: please research where you feel the need to. i.e if three or just react can't handle certain things use the preferred method. please make sure when i hover on either of the two elements there's a cursor hold sort of cursor thing.
+Use **reusable vectors** and optimized math.
