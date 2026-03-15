@@ -191,7 +191,8 @@ export function Card({
         + Math.sin(time * 0.55) * 0.2
         + Math.sin(time * 1.35) * 0.09;
 
-      const windForce = wind * turbulence * 2.5; // horizontal force
+      // Restore wind functionality using intensity and speed from store
+      const windForce = wind * intensity * turbulence * 8; // scaled for XY spring
 
       // Spring restoring force toward natural hang position
       const SPRING_K = 18;
@@ -216,15 +217,35 @@ export function Card({
       self.velX       = velXRef.current;
       self.isDragging = isDraggingRef.current;
 
-      const dist    = Math.abs(elemXRef.current - other.worldX);
+      const diffX   = elemXRef.current - other.worldX;
+      const dist    = Math.abs(diffX);
       const minDist = self.radius + other.radius;
 
       if (dist < minDist && dist > 0.001) {
-        const sign  = Math.sign(other.worldX - elemXRef.current);
-        const relV  = velXRef.current - other.velX;
+        // Position correction: Push elements apart so they don't enter each other
+        const overlap = minDist - dist;
+        const pushDir = Math.sign(diffX);
+        
+        // If I'm dragging, I'm the one pushing, but if both are free, split the push
+        if (isDraggingRef.current) {
+          // Dragging element "owns" the path; other element gets pushed
+          if (!other.isDragging) {
+             // In the registry, we don't have direct ref to other's elemXRef, 
+             // but we'll use applyImpulse for velocity. 
+             // For position correction we need to adjust our own position slightly 
+             // to avoid clipping during drag.
+             elemXRef.current += pushDir * (overlap * 0.1); 
+          }
+        } else if (!other.isDragging) {
+           // Both are free - split the displacement
+           elemXRef.current += pushDir * (overlap * 0.5);
+           // We can't directly set other's position from here easily without a ref, 
+           // but the other card's useFrame will handle its half of the push.
+        }
 
-        if (relV * sign > 0) {
-          const restitution = 0.7;
+        const relV  = velXRef.current - other.velX;
+        if (relV * (-pushDir) > 0) {
+          const restitution = 0.8;
           const J = -(1 + restitution) * relV * 0.5;
           velXRef.current += J;
           if (!other.isDragging) other.applyImpulse(-J);
