@@ -127,7 +127,7 @@ The elements must **not stay static**.
 Add subtle idle animation:
 
 * slow rotation
-* slight hanging sway
+* slight hanging sway (if wind is not at least 0)
 
 This should happen even when the user is not interacting.
 
@@ -154,3 +154,5 @@ The solution should:
 * remove unnecessary complexity
 * maintain React Three Fiber best practices
 * produce **clean readable code**
+
+Extra note: please research where you feel the need to. i.e if three or just react can't handle certain things use the preferred method. please make sure when i hover on either of the two elements there's a cursor hold sort of cursor thing.
