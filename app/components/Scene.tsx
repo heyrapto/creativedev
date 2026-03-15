@@ -21,8 +21,9 @@ export function Scene() {
         </Environment>
 
         {/* Render two 3D elements */}
-        <Card position={[-3.0, 0, 0]} type="safe" />
-        <Card position={[3.0, 0, 0]} type="globe" />
+        {/* Y=-2.5 compensates for the pendulum pivot offset so elements appear at their original screen position */}
+        <Card position={[-3.0, -1.5, 0]} type="safe" />
+        <Card position={[3.0, -1.5, 0]} type="globe" />
       </Canvas>
     </div>
   );
