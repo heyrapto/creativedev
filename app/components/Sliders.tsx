@@ -1,7 +1,7 @@
 "use client";
 
 import { useStore } from '../store';
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 
 const CustomSlider = ({
   label,

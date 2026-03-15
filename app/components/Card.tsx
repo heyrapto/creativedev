@@ -19,6 +19,9 @@ interface CardPhysicsState {
 }
 const registry = new Map<string, CardPhysicsState>();
 
+// Stagger idle phases across instances (module-level counter, not per-render)
+let _instanceCounter = 0;
+
 // Scratch vectors — allocated once, reused every frame (no GC pressure)
 const _scratch1 = new THREE.Vector3();
 const _scratch2 = new THREE.Vector3();
@@ -31,11 +34,9 @@ const _hookLocalOffset = new THREE.Vector3();
 // ---------------------------------------------------------------------------
 export function Card({
   position = [0, 0, 0],
-  rotation = [0, 0, 0],
   type = "safe",
 }: {
   position?: [number, number, number];
-  rotation?: [number, number, number];
   type?: "safe" | "globe";
 }) {
   const { gl, camera } = useThree();
@@ -49,8 +50,8 @@ export function Card({
   // Physics state held in refs
   const posRef = useRef(new THREE.Vector3(...position));
   const velRef = useRef(new THREE.Vector3());
-  const rotVelRef = useRef(0); // Y rotation velocity for spin/idle
-  const idleTimeRef = useRef(Math.random() * 100); // stagger idle phase
+  const rotVelRef = useRef(0);
+  const idlePhaseRef = useRef((_instanceCounter++ % 10) * 10); // stagger, no Math.random
 
   // Drag state
   const isDraggingRef = useRef(false);
@@ -165,16 +166,18 @@ export function Card({
     if (!groupRef.current || !localSpinRef.current) return;
 
     const dt = Math.min(delta, 0.05); // cap at 50ms to avoid spiral on tab switch
-    const time = (idleTimeRef.current += dt);
+    const time = (idlePhaseRef.current += dt);
 
-    // --- Read store values via refs (avoid closure stale reads) ---
-    const storeIntensity = intensity;
+    // --- Read store values (physics sliders only) ---
     const storeSpeed = speed;
     const storeWind = wind;
 
-    // --- Rest position: base + wind push ---
-    const windPush = storeWind * storeIntensity * 5;
-    const idleSway = Math.sin(time * 0.5) * 0.06 * storeIntensity; // gentle idle sway
+    // --- Rest position: base + wind push (wind alone, no intensity) ---
+    // Wind scales naturally: 0=none, 0.5=light, 1=noticeable, 2+=strong
+    const windPush = storeWind * 2.5;
+
+    // Idle sway: a fixed organic constant — not slider-driven
+    const idleSway = Math.sin(time * 0.45) * 0.07;
     _scratch1.set(position[0] + windPush + idleSway, position[1], position[2]);
 
     if (!isDraggingRef.current && !isDroppedRef.current) {
@@ -231,11 +234,12 @@ export function Card({
     // --- Apply position to group ---
     groupRef.current.position.copy(posRef.current);
 
-    // Tilt based on velocity for visual feel
-    const swayX = storeWind * storeIntensity * 2 + idleSway;
+    // Tilt: driven purely by velocity and wind (no intensity multiplier)
+    // Wind tilt: elements lean right proportional to wind strength
+    const windTilt = storeWind * 0.07;
     groupRef.current.rotation.z = THREE.MathUtils.lerp(
       groupRef.current.rotation.z,
-      -velRef.current.x * 0.12 - swayX * 0.08,
+      -velRef.current.x * 0.12 - windTilt,
       dt * 6,
     );
     groupRef.current.rotation.x = THREE.MathUtils.lerp(
@@ -244,14 +248,13 @@ export function Card({
       dt * 6,
     );
 
-    // --- Spin / idle rotation ---
+    // --- Spin / idle rotation (speed-controlled only) ---
     if (hovered) {
       rotVelRef.current += storeSpeed * 0.1 * dt;
     } else {
-      // gentle idle spin
       rotVelRef.current += storeSpeed * 0.08 * dt;
     }
-    rotVelRef.current *= 0.96; // damp
+    rotVelRef.current *= 0.96;
     localSpinRef.current.rotation.y += rotVelRef.current;
 
     // --- Pole stretch ---
@@ -273,18 +276,31 @@ export function Card({
   });
 
   // ---------------------------------------------------------------------------
-  // Materials
+  // Materials — intensity drives visuals ONLY
   // ---------------------------------------------------------------------------
-  const materialProps = useMemo(() => ({
-    metalness: 0.85,
-    roughness: 0.12,
-    clearcoat: glare,
-    clearcoatRoughness: 0.1,
-    iridescence: 1,
-    iridescenceIOR: 1.5,
-    iridescenceThicknessRange: [100, 400] as [number, number],
-    color: new THREE.Color().setHSL(0.6, saturation * 0.9, 0.55 + saturation * 0.1),
-  }), [glare, saturation]);
+  const materialProps = useMemo(() => {
+    // intensity → iridescence strength, clearcoat, and color vibrancy
+    const iridescenceStrength = THREE.MathUtils.clamp(intensity, 0, 1);
+    const clearcoatStrength = THREE.MathUtils.clamp(glare + intensity * 0.5, 0, 5);
+    const iridMin = 80 + intensity * 220;   // 80–300
+    const iridMax = 250 + intensity * 550;  // 250–800
+
+    return {
+      metalness: 0.85 + intensity * 0.12,
+      roughness: Math.max(0.02, 0.18 - intensity * 0.12),
+      clearcoat: clearcoatStrength,
+      clearcoatRoughness: Math.max(0.01, 0.1 - intensity * 0.07),
+      iridescence: iridescenceStrength,
+      iridescenceIOR: 1.4 + intensity * 0.4,
+      iridescenceThicknessRange: [iridMin, iridMax] as [number, number],
+      // saturation controls hue richness; intensity boosts lightness toward vivid
+      color: new THREE.Color().setHSL(
+        0.6,
+        saturation * 0.9 + intensity * 0.1,
+        0.45 + saturation * 0.1 + intensity * 0.08,
+      ),
+    };
+  }, [glare, saturation, intensity]);
 
   const accentMaterial = useMemo(() => ({
     metalness: 1,
